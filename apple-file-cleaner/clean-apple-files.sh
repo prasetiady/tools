@@ -5,7 +5,7 @@
 # Author: Generated CLI Tool
 # Version: 1.0
 
-set -euo pipefail
+set -uo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -85,13 +85,13 @@ log() {
     esac
 }
 
-# Function to find and process Apple files
+# Function to find and process Apple files recursively
 clean_apple_files() {
     local target_dir="$1"
     local total_found=0
     local total_deleted=0
     
-    log "INFO" "Scanning directory: $target_dir"
+    log "INFO" "Scanning directory recursively: $target_dir"
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log "INFO" "DRY RUN MODE - No files will be deleted"
@@ -104,7 +104,7 @@ clean_apple_files() {
         local found_files=()
         local count=0
         
-        # Find files matching the pattern
+        # Find files matching the pattern (recursively search all subdirectories)
         while IFS= read -r -d '' file; do
             found_files+=("$file")
             ((count++))

@@ -4,11 +4,11 @@ A simple command-line tool to recursively delete Apple-related system files from
 
 ## Features
 
-- **Recursive cleaning**: Searches through all subdirectories
+- **Recursive cleaning**: Searches through ALL subdirectories and nested folders
 - **Dry-run mode**: Preview what would be deleted without actually deleting
 - **Comprehensive patterns**: Removes all common Apple system files
 - **Color-coded output**: Easy-to-read terminal output
-- **Verbose mode**: Detailed file listing
+- **Verbose mode**: Detailed file listing showing full paths
 - **Safe operation**: No confirmation prompts (as requested)
 
 ## Apple Files Cleaned
