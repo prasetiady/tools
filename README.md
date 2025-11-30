@@ -16,6 +16,18 @@ cd apple-file-cleaner
 ./clean-apple-files.sh --dry-run
 ```
 
+### USB FAT32 Formatter
+A user-friendly CLI tool to format USB drives to FAT32 format with safety checks and interactive device selection.
+
+**Location**: `./usb-formatter/`
+**Usage**: See the [USB Formatter README](./usb-formatter/README.md) for detailed documentation.
+
+Quick start:
+```bash
+cd usb-formatter
+sudo ./format-usb.sh
+```
+
 ## Adding New Tools
 
 When adding new tools to this repository:
@@ -32,6 +44,9 @@ tools/
 ├── README.md                    # This file
 ├── apple-file-cleaner/          # Apple File Cleaner tool
 │   ├── clean-apple-files.sh     # Main script
+│   └── README.md               # Tool documentation
+├── usb-formatter/               # USB FAT32 Formatter tool
+│   ├── format-usb.sh           # Main script
 │   └── README.md               # Tool documentation
 └── [future-tools]/             # Additional tools will go here
 ```
