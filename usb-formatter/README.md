@@ -10,6 +10,7 @@ A simple and user-friendly command-line tool to format USB drives to FAT32 forma
 - **Device information**: Shows size, filesystem, and mount status before formatting
 - **Confirmation prompts**: Requires explicit confirmation before formatting (unless `--force` is used)
 - **Auto-unmount**: Automatically unmounts the device before formatting
+- **Full space utilization**: Creates a proper partition table and partition to use all available space
 - **Color-coded output**: Easy-to-read terminal output with color coding
 - **Error handling**: Comprehensive error checking and user-friendly messages
 
@@ -18,6 +19,7 @@ A simple and user-friendly command-line tool to format USB drives to FAT32 forma
 - Linux operating system
 - Root/sudo privileges (required for formatting)
 - `mkfs.vfat` or `mkfs.fat` (usually provided by `dosfstools` package)
+- `parted` command (for creating partition tables)
 - `lsblk` command (usually pre-installed)
 - Bash shell
 
@@ -33,16 +35,16 @@ A simple and user-friendly command-line tool to format USB drives to FAT32 forma
    sudo mv format-usb.sh /usr/local/bin/format-usb
    ```
 
-3. Install dosfstools if not already installed:
+3. Install required packages if not already installed:
    ```bash
    # Debian/Ubuntu
-   sudo apt-get install dosfstools
+   sudo apt-get install dosfstools parted
    
    # Arch Linux
-   sudo pacman -S dosfstools
+   sudo pacman -S dosfstools parted
    
    # Fedora/RHEL
-   sudo dnf install dosfstools
+   sudo dnf install dosfstools parted
    ```
 
 ## Usage
@@ -52,23 +54,29 @@ A simple and user-friendly command-line tool to format USB drives to FAT32 forma
 Simply run the script without arguments to enter interactive mode:
 
 ```bash
-sudo ./format-usb.sh
+./format-usb.sh
 ```
+
+The script will automatically request sudo privileges if needed.
 
 The script will:
 1. Scan for available USB devices
 2. Display a numbered list with device information
 3. Prompt you to select a device
 4. Show device details and ask for confirmation
-5. Format the device to FAT32
+5. Create a partition table and partition (utilizing all space)
+6. Ask you for a volume label (you can press Enter to use the default)
+7. Format the partition to FAT32 with the chosen label
 
 ### Command-Line Mode
 
 Format a specific device by providing its path:
 
 ```bash
-sudo ./format-usb.sh /dev/sdb
+./format-usb.sh /dev/sdb
 ```
+
+The script will automatically request sudo privileges if needed.
 
 **Important**: Always use the base device path (e.g., `/dev/sdb`), not a partition (e.g., `/dev/sdb1`). The script will format the entire device.
 
@@ -77,7 +85,7 @@ sudo ./format-usb.sh /dev/sdb
 To see available USB devices without formatting:
 
 ```bash
-sudo ./format-usb.sh --list
+./format-usb.sh --list
 ```
 
 ### Force Mode (Use with Caution!)
@@ -85,7 +93,7 @@ sudo ./format-usb.sh --list
 Skip the confirmation prompt:
 
 ```bash
-sudo ./format-usb.sh --force /dev/sdb
+./format-usb.sh --force /dev/sdb
 ```
 
 **Warning**: This will format the device immediately without asking for confirmation. Use only when you're absolutely certain.
@@ -100,17 +108,19 @@ sudo ./format-usb.sh --force /dev/sdb
 
 ```bash
 # Interactive mode - safest option
-sudo ./format-usb.sh
+./format-usb.sh
 
 # Format specific device
-sudo ./format-usb.sh /dev/sdb
+./format-usb.sh /dev/sdb
 
 # List devices first
-sudo ./format-usb.sh --list
+./format-usb.sh --list
 
 # Format without confirmation (use carefully!)
-sudo ./format-usb.sh --force /dev/sdb
+./format-usb.sh --force /dev/sdb
 ```
+
+**Note**: The script will automatically request sudo privileges when needed. You don't need to run it with `sudo` manually.
 
 ## Safety Features
 
@@ -164,9 +174,14 @@ Type 'yes' to continue, anything else to cancel: yes
 
 [INFO] Device is mounted, unmounting...
 [SUCCESS] Unmounted /media/user/USB
-[INFO] Formatting /dev/sdb to FAT32...
+[INFO] Preparing /dev/sdb for FAT32 formatting...
+[INFO] Creating partition table and partition on /dev/sdb...
+[INFO] Using MBR (msdos) partition table for maximum compatibility
+[SUCCESS] Partition table and partition created successfully
+[INFO] Formatting partition /dev/sdb1 to FAT32...
 mkfs.fat 4.2 (2021-01-31)
-[SUCCESS] Device /dev/sdb formatted successfully to FAT32
+[SUCCESS] Partition /dev/sdb1 formatted successfully to FAT32
+[INFO] All available space has been utilized
 
 [SUCCESS] USB drive formatted successfully!
 [INFO] You can now safely remove the USB drive
@@ -176,7 +191,7 @@ mkfs.fat 4.2 (2021-01-31)
 
 ### Permission Denied
 
-If you get permission errors, make sure you're running with sudo:
+If you get permission errors, the script should automatically request sudo access. If it doesn't, you can run it manually with sudo:
 
 ```bash
 sudo ./format-usb.sh
@@ -205,6 +220,21 @@ sudo pacman -S dosfstools
 
 # Fedora/RHEL
 sudo dnf install dosfstools
+```
+
+### parted Not Found
+
+Install the `parted` package:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install parted
+
+# Arch Linux
+sudo pacman -S parted
+
+# Fedora/RHEL
+sudo dnf install parted
 ```
 
 ### Cannot Unmount Device
@@ -246,7 +276,10 @@ This is a safety feature. The script detected that you're trying to format a sys
 2. **Removability Check**: Uses `/sys/block/*/removable` to identify USB devices
 3. **System Drive Protection**: Compares devices against the root filesystem mount point
 4. **Unmounting**: Uses `findmnt` to find mount points and `umount` to unmount
-5. **Formatting**: Uses `mkfs.vfat` or `mkfs.fat` with FAT32 format (`-F 32`)
+5. **Partition Creation**: Creates a partition table (MBR for drives < 2TB, GPT for larger) and a single partition using all available space
+6. **Formatting**: Formats the partition (not the raw device) to FAT32 using `mkfs.vfat` or `mkfs.fat` with FAT32 format (`-F 32`)
+
+This approach ensures that all available space on the USB drive is utilized, rather than formatting the raw device which may not use the full capacity.
 
 ## License
 
