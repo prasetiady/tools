@@ -245,21 +245,28 @@ unmount_device() {
     local device="$1"
     local base_device=$(basename "$device" | sed 's/[0-9]*$//')
     local full_device="/dev/$base_device"
-    
-    # Check if mounted
-    local mount_points=$(findmnt -n -o TARGET "$full_device" 2>/dev/null)
-    if [[ -n "$mount_points" ]]; then
-        log "INFO" "Device is mounted, unmounting..."
+
+    # Unmount all partitions and the device itself
+    # lsblk lists the device and all its partitions
+    local all_mount_points=$(lsblk -n -o MOUNTPOINT "$full_device" 2>/dev/null | grep -v '^$')
+    if [[ -n "$all_mount_points" ]]; then
+        log "INFO" "Device or its partitions are mounted, unmounting..."
         while IFS= read -r mount_point; do
+            [[ -z "$mount_point" ]] && continue
             if umount "$mount_point" 2>/dev/null; then
                 log "SUCCESS" "Unmounted $mount_point"
             else
-                log "ERROR" "Failed to unmount $mount_point"
-                return 1
+                # Try lazy unmount as fallback
+                if umount -l "$mount_point" 2>/dev/null; then
+                    log "SUCCESS" "Lazy unmounted $mount_point"
+                else
+                    log "ERROR" "Failed to unmount $mount_point"
+                    return 1
+                fi
             fi
-        done <<< "$mount_points"
+        done <<< "$all_mount_points"
     fi
-    
+
     return 0
 }
 
@@ -269,31 +276,31 @@ create_partition() {
     local base_device=$(basename "$device" | sed 's/[0-9]*$//')
     local full_device="/dev/$base_device"
     
-    log "INFO" "Creating partition table and partition on $full_device..."
-    
+    log "INFO" "Creating partition table and partition on $full_device..." >&2
+
     # Determine partition table type based on device size
     # Get device size in bytes
     local device_size_bytes=$(blockdev --getsize64 "$full_device" 2>/dev/null)
     if [[ -z "$device_size_bytes" ]]; then
-        log "WARNING" "Could not determine device size, using MBR partition table"
+        log "WARNING" "Could not determine device size, using MBR partition table" >&2
         local partition_table="msdos"
     else
         # 2TB = 2 * 1024^4 bytes = 2199023255552 bytes
         if [[ $device_size_bytes -gt 2199023255552 ]]; then
             partition_table="gpt"
-            log "INFO" "Device is larger than 2TB, using GPT partition table"
+            log "INFO" "Device is larger than 2TB, using GPT partition table" >&2
         else
             partition_table="msdos"
-            log "INFO" "Using MBR (msdos) partition table for maximum compatibility"
+            log "INFO" "Using MBR (msdos) partition table for maximum compatibility" >&2
         fi
     fi
-    
+
     # Check for parted command
     if ! command -v parted &> /dev/null; then
         log "ERROR" "parted command not found. Please install parted"
-        log "INFO" "On Debian/Ubuntu: sudo apt-get install parted"
-        log "INFO" "On Arch: sudo pacman -S parted"
-        log "INFO" "On Fedora/RHEL: sudo dnf install parted"
+        log "INFO" "On Debian/Ubuntu: sudo apt-get install parted" >&2
+        log "INFO" "On Arch: sudo pacman -S parted" >&2
+        log "INFO" "On Fedora/RHEL: sudo dnf install parted" >&2
         return 1
     fi
     
@@ -310,21 +317,47 @@ create_partition() {
         partition_device="${full_device}1"
     fi
     
+    # Wipe existing filesystem and partition signatures
+    # This is critical for devices with iso9660 (bootable USB images written with dd)
+    # which can leave signatures that prevent parted from creating a new partition table
+    log "INFO" "Wiping existing filesystem signatures..." >&2
+
+    # Step 1: wipefs to clear known filesystem signatures
+    if command -v wipefs &> /dev/null; then
+        if ! wipefs -a "$full_device" >&2; then
+            log "WARNING" "wipefs reported errors, continuing anyway..." >&2
+        fi
+    fi
+
+    # Step 2: Zero out the first and last 1MB of the device to clear
+    # MBR, GPT headers, and any backup partition tables
+    dd if=/dev/zero of="$full_device" bs=1M count=1 conv=notrunc 2>/dev/null || true
+    if [[ -n "$device_size_bytes" ]] && [[ "$device_size_bytes" -gt 1048576 ]]; then
+        dd if=/dev/zero of="$full_device" bs=1M seek=$((device_size_bytes / 1048576 - 1)) count=1 conv=notrunc 2>/dev/null || true
+    fi
+    sync
+
+    # Step 3: Force kernel to drop any cached partition info
+    blockdev --rereadpt "$full_device" 2>/dev/null || true
+    if command -v partprobe &> /dev/null; then
+        partprobe "$full_device" 2>/dev/null || true
+    fi
+
     # Create partition table and single partition using all space
     # -s: script mode (non-interactive)
     # mklabel: create partition table
     # mkpart: create partition (primary, fat32, start at 0%, end at 100%)
-    if ! parted -s "$full_device" mklabel "$partition_table" 2>&1; then
+    if ! parted -s "$full_device" mklabel "$partition_table" >&2; then
         log "ERROR" "Failed to create partition table"
         return 1
     fi
     
-    if ! parted -s "$full_device" mkpart primary fat32 0% 100% 2>&1; then
+    if ! parted -s "$full_device" mkpart primary fat32 0% 100% >&2; then
         log "ERROR" "Failed to create partition"
         return 1
     fi
     
-    log "SUCCESS" "Partition table and partition created successfully"
+    log "SUCCESS" "Partition table and partition created successfully" >&2
     
     # Force kernel to reread partition table - try multiple methods
     sync
@@ -370,7 +403,7 @@ create_partition() {
         return 0
     else
         log "ERROR" "Partition device $partition_device not found after creation"
-        log "INFO" "Attempting additional methods to force kernel recognition..."
+        log "INFO" "Attempting additional methods to force kernel recognition..." >&2
         
         # Try partx to explicitly add the partition
         if command -v partx &> /dev/null; then
@@ -390,8 +423,8 @@ create_partition() {
             return 0
         fi
         
-        log "WARNING" "Partition $partition_device still not detected by kernel"
-        log "INFO" "The partition exists but may not be recognized. Proceeding with format attempt..."
+        log "WARNING" "Partition $partition_device still not detected by kernel" >&2
+        log "INFO" "The partition exists but may not be recognized. Proceeding with format attempt..." >&2
         # Return the expected partition name anyway - mkfs might still work
         printf '%s\n' "$partition_device"
         return 0
@@ -418,27 +451,13 @@ format_device() {
     fi
     
     # Create partition table and partition to utilize all space
-    # We need to capture stdout (partition device) while stderr (logs) goes to terminal
-    # Use a temp file to separate stdout from stderr cleanly
+    # create_partition sends logs to stderr and the partition device path to stdout
     local partition_device
-    local temp_stdout=$(mktemp)
-    local temp_stderr=$(mktemp)
-    
-    # Run create_partition, capturing stdout and stderr separately
-    if create_partition "$device" > "$temp_stdout" 2> "$temp_stderr"; then
-        # Display log messages from stderr
-        cat "$temp_stderr" >&2
-        
-        # Get partition device from stdout
-        partition_device=$(cat "$temp_stdout" | tr -d '\n\r' | xargs)
-        rm -f "$temp_stdout" "$temp_stderr"
-    else
-        # Display error messages
-        cat "$temp_stderr" >&2
-        rm -f "$temp_stdout" "$temp_stderr"
+    if ! partition_device=$(create_partition "$device"); then
         log "ERROR" "Failed to create partition"
         return 1
     fi
+    partition_device=$(echo "$partition_device" | tr -d '\n\r' | xargs)
     
     # If partition device not captured, construct it from device name
     if [[ -z "$partition_device" ]] || [[ ! "$partition_device" =~ ^/dev/ ]]; then
