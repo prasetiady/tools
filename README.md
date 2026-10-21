@@ -28,6 +28,18 @@ cd usb-formatter
 sudo ./format-usb.sh
 ```
 
+### Use AdGuard DNS
+A script that switches Omarchy system DNS to AdGuard DNS over DNS over TLS, for networks that intercept plain DNS.
+
+**Location**: `./use-adguard/`
+**Usage**: See the [Use AdGuard DNS README](./use-adguard/README.md) for detailed documentation.
+
+Quick start:
+```bash
+cd use-adguard
+./use-adguard.sh
+```
+
 ## Adding New Tools
 
 When adding new tools to this repository:
@@ -47,6 +59,9 @@ tools/
 │   └── README.md               # Tool documentation
 ├── usb-formatter/               # USB FAT32 Formatter tool
 │   ├── format-usb.sh           # Main script
+│   └── README.md               # Tool documentation
+├── use-adguard/                 # Use AdGuard DNS tool
+│   ├── use-adguard.sh          # Main script
 │   └── README.md               # Tool documentation
 └── [future-tools]/             # Additional tools will go here
 ```
