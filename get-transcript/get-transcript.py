@@ -3,23 +3,9 @@
 # requires-python = ">=3.12"
 # dependencies = ["faster-whisper>=1.1", "numpy"]
 # ///
-"""Transcribe an audio or video file on this machine with faster-whisper.
-
-Usage: get-transcript FILE [-o OUT | --stdout] [--format txt|srt|vtt|json]
-                           [--model NAME] [--language CODE] [--device auto|cpu|cuda]
-       get-transcript --dry-run FILE [options]
-       get-transcript --self-test
-  FILE        Audio or video file (anything ffmpeg reads: mp4, mkv, mov, m4a, mp3, wav)
-  -o OUT      Write to OUT. Default: FILE with the format's extension, next to FILE
-  --stdout    Print the transcript to stdout instead of writing a file
-  --format    txt (default, "[mm:ss] text" lines), srt, vtt, or json (start, end, text)
-  --model     faster-whisper model. Default: distil-large-v3 (English only).
-              Use large-v3 for other languages
-  --language  Language code. Default: en. Use "auto" to detect the language
-  --device    auto (default) uses cuda when a GPU works, else cpu
-  --dry-run   Show the duration, model, device, and output path; transcribe nothing
-  --self-test Check the timestamp, srt, and vtt formatters
-"""
+"""Transcribe an audio or video file on this machine with faster-whisper."""
+import argparse
+import ctypes
 import json
 import os
 import shutil
@@ -29,9 +15,8 @@ import time
 from pathlib import Path
 
 FORMATS = ("txt", "srt", "vtt", "json")
-VALUE_FLAGS = {"-o": "out", "--format": "format", "--model": "model",
-               "--language": "language", "--device": "device"}
 SAMPLE_RATE = 16000
+CUDA_LIBRARIES = ("libcublas.so.12", "libcudnn_ops.so.9")
 
 
 def clock(seconds, sep=","):
@@ -44,7 +29,9 @@ def clock(seconds, sep=","):
 
 
 def short(seconds):
-    """Return mm:ss, or h:mm:ss when the time passes one hour."""
+    """Return mm:ss, or h:mm:ss when the time passes one hour. None gives "?"."""
+    if seconds is None:
+        return "?"
     s = int(seconds)
     h, s = divmod(s, 3600)
     m, s = divmod(s, 60)
@@ -55,8 +42,8 @@ def header(fmt):
     return {"vtt": "WEBVTT\n\n", "json": "[\n"}.get(fmt, "")
 
 
-def footer(fmt, count):
-    return ("\n]\n" if count else "]\n") if fmt == "json" else ""
+def footer(fmt):
+    return "\n]\n" if fmt == "json" else ""
 
 
 def render(fmt, index, start, end, text):
@@ -75,60 +62,53 @@ def render(fmt, index, start, end, text):
 def self_test():
     assert clock(3725.5) == "01:02:05,500", clock(3725.5)
     assert clock(2.0, ".") == "00:00:02.000"
-    assert short(65.9) == "01:05" and short(3725) == "1:02:05"
+    assert short(65.9) == "01:05" and short(3725) == "1:02:05" and short(None) == "?"
     assert render("txt", 1, 5.2, 9, "Hi") == "[00:05] Hi\n"
     assert render("srt", 3, 0, 2, "Hi") == "3\n00:00:00,000 --> 00:00:02,000\nHi\n\n"
     assert render("vtt", 1, 0, 2, "Hi") == "00:00:00.000 --> 00:00:02.000\nHi\n\n"
     body = header("json") + render("json", 1, 0, 1, "a") + render("json", 2, 1, 2, "b")
-    assert json.loads(body + footer("json", 2))[1] == {"start": 1, "end": 2, "text": "b"}
-    assert json.loads(header("json") + footer("json", 0)) == []
+    assert json.loads(body + footer("json"))[1] == {"start": 1, "end": 2, "text": "b"}
+    assert json.loads(header("json") + footer("json")) == []
+    args = build_parser().parse_args(["--format=srt", "--", "-odd.mp4"])
+    assert args.format == "srt" and args.file == "-odd.mp4", args
     print("ok")
 
 
-def parse_args(args):
-    opts = {"out": None, "format": "txt", "model": "distil-large-v3",
-            "language": "en", "device": "auto", "stdout": False, "dry_run": False}
-    files = []
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a in VALUE_FLAGS:
-            if i + 1 >= len(args):
-                sys.exit(f"error: {a} needs a value\n" + __doc__)
-            opts[VALUE_FLAGS[a]] = args[i + 1]
-            i += 2
-            continue
-        if a == "--stdout":
-            opts["stdout"] = True
-        elif a == "--dry-run":
-            opts["dry_run"] = True
-        elif a in ("-h", "--help"):
-            print(__doc__)
-            sys.exit(0)
-        elif a.startswith("-"):
-            sys.exit(f"error: unknown option {a}\n" + __doc__)
-        else:
-            files.append(a)
-        i += 1
-    if len(files) != 1:
-        sys.exit("error: give exactly one FILE\n" + __doc__)
-    if opts["format"] not in FORMATS:
-        sys.exit(f"error: --format must be one of {', '.join(FORMATS)}")
-    if opts["device"] not in ("auto", "cpu", "cuda"):
-        sys.exit("error: --device must be auto, cpu, or cuda")
-    if opts["out"] and opts["stdout"]:
-        sys.exit("error: use -o or --stdout, not both")
-    return Path(files[0]), opts
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="get-transcript", description=__doc__,
+        epilog="The default model, distil-large-v3, is English only. Use --model large-v3 "
+               "for other languages.")
+    p.add_argument("file", nargs="?", metavar="FILE",
+                   help="audio or video file (anything ffmpeg reads: mp4, mkv, mov, m4a, mp3, wav)")
+    where = p.add_mutually_exclusive_group()
+    where.add_argument("-o", dest="out", metavar="OUT",
+                       help="output file (default: FILE with the format's extension, next to FILE)")
+    where.add_argument("--stdout", action="store_true",
+                       help="print the transcript to stdout instead of a file")
+    p.add_argument("--format", choices=FORMATS, default="txt",
+                   help='txt ("[mm:ss] text" lines), srt, vtt, or json (start, end, text). Default: txt')
+    p.add_argument("--model", default="distil-large-v3", help="faster-whisper model. Default: distil-large-v3")
+    p.add_argument("--language", default="en", help='language code, or "auto" to detect it. Default: en')
+    p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto",
+                   help="auto uses cuda when a GPU and the CUDA libraries work, else cpu. Default: auto")
+    p.add_argument("--dry-run", action="store_true",
+                   help="show the duration, model, device, and output path; transcribe nothing")
+    p.add_argument("--self-test", action="store_true", help="check the formatters and the parser")
+    return p
 
 
 def duration(path):
+    """Return the duration in seconds, or None when the file header has none."""
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
         capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(f"error: ffprobe cannot read {path}: {result.stderr.strip()}")
     try:
         return float(result.stdout.strip())
     except ValueError:
-        sys.exit(f"error: ffprobe cannot read {path}: {result.stderr.strip() or 'no duration'}")
+        return None  # ffprobe prints N/A for streamed files, such as browser WebM recordings
 
 
 def load_audio(path):
@@ -144,7 +124,10 @@ def load_audio(path):
 
 
 def cuda_works():
+    """Return True when a GPU, its driver, cuBLAS 12, and cuDNN 9 all load."""
     try:
+        for library in CUDA_LIBRARIES:
+            ctypes.CDLL(library)
         import ctranslate2
         return ctranslate2.get_cuda_device_count() > 0
     except Exception:
@@ -153,7 +136,7 @@ def cuda_works():
 
 def load_model(name, device):
     from faster_whisper import WhisperModel
-    if device in ("auto", "cuda") and (device == "cuda" or cuda_works()):
+    if device == "cuda" or (device == "auto" and cuda_works()):
         try:
             return WhisperModel(name, device="cuda", compute_type="float16"), "cuda"
         except Exception as e:
@@ -165,34 +148,38 @@ def load_model(name, device):
 
 
 def main():
-    args = sys.argv[1:]
-    if args == ["--self-test"]:
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.self_test:
         return self_test()
-    path, opts = parse_args(args)
+    if not args.file:
+        parser.error("FILE is required")
+    path = Path(args.file)
     for tool in ("ffmpeg", "ffprobe"):
         if not shutil.which(tool):
             sys.exit(f"error: {tool} is not on PATH")
     if not path.is_file():
         sys.exit(f"error: no such file: {path}")
 
-    fmt = opts["format"]
-    out = None if opts["stdout"] else Path(opts["out"] or path.with_suffix("." + fmt))
+    fmt = args.format
+    out = None if args.stdout else Path(args.out or path.with_suffix("." + fmt))
     total = duration(path)
-    if opts["dry_run"]:
-        device = opts["device"]
+    length = "?" if total is None else f"{short(total)} ({total:.0f} s)"
+    if args.dry_run:
+        device = args.device
         if device == "auto":
             device = "cuda" if cuda_works() else "cpu"
-        print(f"file:     {path}\nduration: {short(total)} ({total:.0f} s)\n"
-              f"model:    {opts['model']}\nlanguage: {opts['language']}\n"
+        print(f"file:     {path}\nduration: {length}\n"
+              f"model:    {args.model}\nlanguage: {args.language}\n"
               f"device:   {device}\noutput:   {out or 'stdout'} ({fmt})")
         return
 
     start_time = time.time()
     samples = load_audio(path)
-    model, device = load_model(opts["model"], opts["device"])
-    print(f"Transcribing {short(total)} of audio with {opts['model']} on {device}...", file=sys.stderr)
+    model, device = load_model(args.model, args.device)
+    print(f"Transcribing {short(total)} of audio with {args.model} on {device}...", file=sys.stderr)
     segments, _ = model.transcribe(
-        samples, language=None if opts["language"] == "auto" else opts["language"],
+        samples, language=None if args.language == "auto" else args.language,
         beam_size=5, vad_filter=True, condition_on_previous_text=False)
 
     sink = open(out, "w", encoding="utf-8") if out else sys.stdout
@@ -208,8 +195,8 @@ def main():
             sink.flush()
             if sys.stderr.isatty():
                 print(f"\r  {short(seg.end)} / {short(total)}", end="", file=sys.stderr, flush=True)
-        sink.write(footer(fmt, count))
     finally:
+        sink.write(footer(fmt))  # closes the json array on Ctrl+C or an error, too
         if out:
             sink.close()
     if sys.stderr.isatty():
@@ -222,4 +209,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        sys.exit("\nstopped; the output file keeps the segments written so far")
+        sys.exit("\nstopped")

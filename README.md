@@ -17,7 +17,7 @@ cd apple-file-cleaner
 ```
 
 ### Get Transcript
-A script that transcribes an audio or video file on your machine with faster-whisper, and writes the transcript as text, SRT, VTT, or JSON.
+A script that transcribes an audio or video file on your machine with faster-whisper, and writes the transcript as text, SubRip (SRT), WebVTT (VTT), or JSON.
 
 **Location**: `./get-transcript/`
 **Usage**: See the [Get Transcript README](./get-transcript/README.md) for detailed documentation.
