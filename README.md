@@ -16,6 +16,18 @@ cd apple-file-cleaner
 ./clean-apple-files.sh --dry-run
 ```
 
+### Get Transcript
+A script that transcribes an audio or video file on your machine with faster-whisper, and writes the transcript as text, SubRip (SRT), WebVTT (VTT), or JSON.
+
+**Location**: `./get-transcript/`
+**Usage**: See the [Get Transcript README](./get-transcript/README.md) for detailed documentation.
+
+Quick start:
+```bash
+cd get-transcript
+./get-transcript.py --dry-run "meeting.mp4"
+```
+
 ### USB FAT32 Formatter
 A user-friendly CLI tool to format USB drives to FAT32 format with safety checks and interactive device selection.
 
@@ -56,6 +68,9 @@ tools/
 ├── README.md                    # This file
 ├── apple-file-cleaner/          # Apple File Cleaner tool
 │   ├── clean-apple-files.sh     # Main script
+│   └── README.md               # Tool documentation
+├── get-transcript/              # Get Transcript tool
+│   ├── get-transcript.py       # Main script
 │   └── README.md               # Tool documentation
 ├── usb-formatter/               # USB FAT32 Formatter tool
 │   ├── format-usb.sh           # Main script
